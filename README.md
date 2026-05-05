@@ -56,6 +56,6 @@ Type `exit` to quit.
 
 ## Notes
 
-- Uses `gemini-2.5-flash` (free tier: ~15 requests/min, 1500/day). If unavailable in your region, change the model name in `src/llm_client.py` to `gemini-1.5-flash`.
+- Uses `google-genai` SDK. Models are tried in priority order: `gemini-2.5-flash` → `gemini-2.0-flash` → `gemini-1.5-flash`. If the top model is overloaded (503), the next one is used automatically. Free tier: ~15 requests/min, 1500/day.
 - Schema introspection reads only metadata — no table data is ever fetched during setup.
 - Rows returned by SQL are capped at 20 before being sent to Gemini to keep token usage low.
