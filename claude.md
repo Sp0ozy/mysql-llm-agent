@@ -1,212 +1,122 @@
-# CLAUDE.md — MySQL LLM Context Generator
+# CLAUDE.md — MySQL LLM Agent
 
 ## Project Goal
 
-Build a Python tool that:
-1. Connects to a remote MySQL server
-2. Introspects schema (tables, columns, types, foreign keys) — NOT data
-3. Generates a structured context document describing the database
-4. Uses Google Gemini API to generate SQL from natural-language questions
-5. Executes the SQL and uses Gemini again to describe results in natural language
+Python tool that connects to a remote MySQL database, introspects its schema, and uses Google Gemini for two workflows:
 
-This is a homework assignment for a Fintech course on LLM tooling. The grading criterion is whether the context generation enables the LLM to produce correct SQL.
+1. **Q&A mode** (`main.py`) — natural-language question → SQL → execute → describe in plain English. **STATUS: complete, tagged `pre-task2`.**
+2. **Report mode** (`generate_report.py`) — schema → LLM-generated visualization plan → SQL per item → matplotlib chart → business insight → self-contained HTML report. **STATUS: to be built (see PLAN.md).**
+
+Built for a Fintech course on LLM tooling. Grading criterion for Task B: the agent must autonomously generate a useful analytical report from schema alone.
 
 ## Constraints
 
 - Python 3.11+
-- Use SQLAlchemy 2.0 (with `pymysql` driver), NOT raw `mysql-connector-python`
-- Use `google-generativeai` for Gemini API
-- Use `python-dotenv` for credentials
-- DO NOT query actual table data during introspection — only metadata via `information_schema` or SQLAlchemy's `Inspector`
-- Code must be readable and explainable; the human will review it line-by-line before submission
+- SQLAlchemy 2.0 with `pymysql` driver (NOT raw `mysql-connector-python`)
+- `google-genai` SDK for Gemini (model fallback chain: `gemini-2.5-flash` → `gemini-2.0-flash` → `gemini-1.5-flash`)
+- `python-dotenv` for credentials
+- Schema introspection reads METADATA ONLY — never queries table data
+- Pandas allowed in the visualization pipeline only (`planner.py`, `visualizer.py`, `report.py`, `generate_report.py`). NOT in `db_introspect.py` or `context_builder.py`.
+- Code must be readable and explainable line-by-line before submission
 
 ## Project Structure
+
+```
 mysql-llm-agent/
-├── .env                    # credentials (gitignored)
-├── .env.example            # template, committed
+├── .env                       # credentials (gitignored)
+├── .env.example
 ├── .gitignore
 ├── README.md
+├── CLAUDE.md                  # this file — project reference
+├── PLAN.md                    # active build plan for Task B
 ├── requirements.txt
+├── main.py                    # Q&A CLI (Task A, done)
+├── generate_report.py         # Report orchestrator (Task B, to build)
 ├── src/
-│   ├── init.py
-│   ├── db_introspect.py    # schema extraction
-│   ├── context_builder.py  # format schema → markdown context
-│   ├── llm_client.py       # Gemini wrappers
-│   └── pipeline.py         # orchestrate end-to-end
-└── main.py                 # CLI entry point
+│   ├── __init__.py
+│   ├── db_introspect.py       # schema extraction (done)
+│   ├── context_builder.py     # schema → markdown (done)
+│   ├── llm_client.py          # Gemini wrappers (extend for Task B)
+│   ├── pipeline.py            # Q&A orchestrator (done)
+│   ├── planner.py             # NEW: schema → JSON plan
+│   ├── visualizer.py          # NEW: DataFrame → PNG
+│   └── report.py              # NEW: items → HTML
+├── templates/
+│   └── report.html.j2         # NEW: Jinja2 report template
+└── output/                    # NEW: gitignored, generated PNGs + report.html
+```
 
 ## Environment Variables (`.env`)
+
+```
 DB_HOST=87.110.123.151
 DB_PORT=3306
 DB_USER=fita
 DB_PASSWORD=2026-04-28
-DB_NAME=                    # to be discovered, leave blank initially
+DB_NAME=                       # leave blank on first run to discover
 GEMINI_API_KEY=
-
-`.env.example` should mirror this with empty values.
-
-## requirements.txt
-sqlalchemy>=2.0.0
-pymysql>=1.1.0
-google-generativeai>=0.8.0
-python-dotenv>=1.0.0
-
-## Module Specifications
-
-### `src/db_introspect.py`
-
-Single function: `get_schema(engine) -> dict`
-
-Use `sqlalchemy.inspect(engine)`. Return this exact structure:
-
-```python
-{
-    "database": "<db_name>",
-    "tables": [
-        {
-            "name": "orders",
-            "columns": [
-                {
-                    "name": "id",
-                    "type": "INTEGER",          # str(col["type"])
-                    "nullable": False,
-                    "primary_key": True
-                },
-                ...
-            ],
-            "foreign_keys": [
-                {
-                    "column": "customer_id",
-                    "references_table": "customers",
-                    "references_column": "id"
-                },
-                ...
-            ]
-        },
-        ...
-    ]
-}
 ```
 
-Filter out system schemas: `information_schema`, `mysql`, `performance_schema`, `sys`.
+## requirements.txt
 
-Include a helper `list_databases(engine) -> list[str]` for the initial discovery step (since `DB_NAME` is unknown).
+Current (Q&A mode):
+```
+sqlalchemy>=2.0.0
+pymysql>=1.1.0
+google-genai>=1.0.0
+python-dotenv>=1.0.0
+```
 
-### `src/context_builder.py`
+To add for Task B:
+```
+pandas>=2.0.0
+matplotlib>=3.8.0
+jinja2>=3.1.0
+```
 
-Function: `build_context(schema: dict) -> str`
+## Module Conventions
 
-Convert the schema dict into a markdown string the LLM will consume. Format:
-Database: <name>
-Table: orders
-Columns:
+### Existing (do not modify unless PLAN.md says so)
 
-id: INTEGER, PRIMARY KEY, NOT NULL
-customer_id: INTEGER, NOT NULL
-total: DECIMAL(10,2), NULL allowed
+- **`src/db_introspect.py`** — `get_schema(engine) -> dict`, `list_databases(engine) -> list[str]`. Uses SQLAlchemy Inspector. Filters system schemas. Returns nested dict with tables → columns + foreign_keys.
+- **`src/context_builder.py`** — `build_context(schema: dict) -> str`. Compact markdown. No headers larger than `##`. Token-efficient.
+- **`src/llm_client.py`** — `_generate(api_key, prompt)` with model fallback on 503. `generate_sql(question, schema_context, api_key)` strips markdown fences. `describe_results(question, sql, results, api_key)` truncates to 20 rows.
+- **`src/pipeline.py`** — `answer_question(engine, schema_context, question, api_key) -> dict`. Returns `{"sql", "rows", "answer"}` or `{"sql", "error"}` on SQL failure.
+- **`main.py`** — interactive CLI loop. Must remain functional after Task B work.
 
-Foreign Keys:
+### New (build per PLAN.md)
 
-customer_id → customers.id
+- **`src/planner.py`** — `generate_plan(schema_context, api_key, n_items=5) -> list[dict]`. Each item: `{title, question, viz_type, x_label, y_label}`. `viz_type` ∈ {bar, line, pie, scatter, hist}.
+- **`src/visualizer.py`** — `render(df, viz_type, title, x_label, y_label, out_path) -> str`. Matplotlib `Agg` backend. Dispatches on viz_type.
+- **`src/report.py`** — `build_html(items, out_path) -> None`. Self-contained HTML with base64-embedded PNGs.
+- **`src/llm_client.py` additions** — `generate_insight(question, sql, results, api_key) -> str`. Business takeaway, not recap.
+- **`generate_report.py`** — orchestrator. Handles per-item SQL failure with one retry, never crashes the whole report.
 
+## Build Order
 
-Keep it compact. The LLM pays for every token. No headers larger than `##`.
+Q&A mode (Task A) is complete and tagged `gemini-qa-v1`. Do not refactor it.
 
-### `src/llm_client.py`
+For Task B, follow **PLAN.md** strictly:
+1. Dependencies
+2. Planner
+3. Visualizer
+4. Insight generator
+5. Report assembler
+6. Orchestrator
+7. Commit + share
 
-Initialize Gemini with `google.generativeai.configure(api_key=...)` and `GenerativeModel("gemini-2.5-flash")` (or `gemini-1.5-flash` if 2.5 unavailable — use the flash tier, not pro, to stay within free quota).
-
-Two functions:
-
-#### `generate_sql(question: str, schema_context: str) -> str`
-
-Prompt template:
-You are a MySQL expert. Given the database schema below, write a single SQL query that answers the user's question.
-Rules:
-
-Return ONLY the SQL query, no markdown fences, no explanation.
-Use only tables and columns from the schema.
-Prefer aggregations over returning raw rows when the question asks for a metric.
-
-Schema:
-{schema_context}
-Question: {question}
-SQL:
-
-Strip any markdown fences from the response (```sql ... ```) defensively.
-
-#### `describe_results(question: str, sql: str, results: list[dict]) -> str`
-
-Prompt template:
-A user asked: "{question}"
-This SQL was executed:
-{sql}
-Results (first 20 rows):
-{results}
-Write a 2-3 sentence answer to the user's question based on these results. Do not mention the SQL or the schema. Speak as if answering the user directly.
-
-Truncate `results` to 20 rows before sending (token cost).
-
-### `src/pipeline.py`
-
-Function: `answer_question(engine, schema_context: str, question: str) -> dict`
-
-Flow:
-1. Call `generate_sql(question, schema_context)` → get SQL string
-2. Execute SQL via `engine.connect().execute(text(sql))` → fetch all rows as list of dicts
-3. Call `describe_results(question, sql, rows)` → get description
-4. Return `{"sql": sql, "rows": rows, "answer": description}`
-
-Wrap the SQL execution in try/except. If it fails, return `{"sql": sql, "error": str(e)}` so the human can see what the LLM generated.
-
-### `main.py`
-
-CLI loop:
-1. Load `.env`
-2. Build engine from env vars (URL-encode the password using `urllib.parse.quote_plus`)
-3. Call `get_schema(engine)` → cache once
-4. Call `build_context(schema)` → cache once
-5. `while True:` prompt user for a question, run `answer_question`, print SQL + answer
-6. Type `exit` to quit
-
-Print the schema context once on startup so the user can see what the LLM sees.
-
-## .gitignore
-.env
-pycache/
-*.pyc
-venv/
-.venv/
-*.egg-info/
-.idea/
-.vscode/
-
-## README.md
-
-Sections:
-1. **What it does** — 2-3 sentences
-2. **Architecture** — bullet list: introspect → context → LLM → SQL → execute → describe
-3. **Setup** — clone, venv, install, copy `.env.example` to `.env`, fill in keys
-4. **Usage** — `python main.py`, ask questions
-5. **Notes** — mention Gemini model used, free-tier quota caveats
-
-## Build Order (strict)
-
-1. Project structure + `.gitignore` + `requirements.txt` + `.env.example`
-2. `db_introspect.py` + a quick test in `main.py` that just `pprint`s the schema
-3. After human confirms schema looks right: `context_builder.py`
-4. `llm_client.py` (both functions)
-5. `pipeline.py`
-6. Wire up full `main.py` CLI loop
-7. README
-
-Stop after each step and let the human verify before continuing.
+**Stop after every step. Verify by running the test snippet in PLAN.md. Do not proceed until the human confirms.**
 
 ## What NOT to do
 
-- Don't use `mysql-connector-python` directly — SQLAlchemy with pymysql only.
+- Don't use `mysql-connector-python` directly — SQLAlchemy + pymysql only.
 - Don't use raw `information_schema` queries when Inspector methods exist.
 - Don't query actual table data during introspection.
-- Don't commit `.env`.
-- Don't add features beyond the spec (no Streamlit UI, no fancy logging, no retry logic).
-- Don't use `pandas` — return rows as plain dicts.
+- Don't commit `.env` or `output/`.
+- Don't break the existing Q&A mode while building the report mode.
+- Don't merge planner + visualizer + report into one file.
+- Don't add CSS frameworks. Plain inline CSS in the Jinja template.
+- Don't trust LLM output without validation. Parse → validate → retry once → fail loudly.
+- Don't add Streamlit, FastAPI, or any web framework. The deliverable is a static HTML file.
+- Don't add unnecessary abstractions (no Strategy pattern for viz types — a dispatch dict is enough).
+- Don't write more than ~20 lines per file in a single shot. Build incrementally and let the human read each addition.
