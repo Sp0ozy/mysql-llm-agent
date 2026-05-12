@@ -69,3 +69,26 @@ def describe_results(question: str, sql: str, results: list[dict], api_key: str)
         Write a 2-3 sentence answer to the user's question based on these results. Do not mention the SQL or the schema. Speak as if answering the user directly."""
 
     return _generate(api_key, prompt)
+
+
+def generate_insight(question: str, sql: str, results: list[dict], api_key: str) -> str:
+    """Ask Gemini for a 1-2 sentence business takeaway from the results."""
+    truncated = results[:20]
+
+    prompt = f"""You are a business analyst writing a single insight for a report.
+
+Original question: "{question}"
+Results (first 20 rows): {truncated}
+
+Write 1-2 sentences capturing the BUSINESS TAKEAWAY a decision-maker should act on.
+
+Strict rules:
+- Do NOT recap raw numbers the reader can already see in the chart.
+- Do NOT mention SQL, queries, the schema, tables, or columns.
+- Do NOT start with filler like "This shows that...", "The data indicates...", "We can see...".
+- Lead with the conclusion. Name the dominant pattern, anomaly, or imbalance.
+- If the data reveals nothing notable, say so plainly in one sentence.
+
+Insight:"""
+
+    return _generate(api_key, prompt)
