@@ -39,6 +39,8 @@ Leave `DB_NAME` blank on the first run to discover available databases.
 
 ## Usage
 
+### Q&A mode
+
 ```bash
 python main.py
 ```
@@ -54,8 +56,25 @@ Answer: There are 33,461 payments recorded in the system.
 
 Type `exit` to quit.
 
+### Report mode
+
+```bash
+python generate_report.py
+```
+
+Generates a self-contained HTML report with 4–6 visualizations and business insights, driven entirely from the schema. The agent:
+
+1. **Plans** — `planner.py` asks Gemini for a JSON list of visualizations a business user would care about (`{title, question, viz_type, x_label, y_label}`)
+2. **Queries** — for each plan item, generates SQL, executes it, and retries once with the error fed back if the query fails
+3. **Visualizes** — `visualizer.py` renders the result as a matplotlib chart (bar, line, pie, scatter, or histogram)
+4. **Explains** — `llm_client.generate_insight()` writes a 1–2 sentence business takeaway per chart
+5. **Assembles** — `report.py` renders everything into a single HTML file with base64-embedded PNGs
+
+Output is written to `output/report.html`. One failed item never crashes the whole report — failures appear inline with the SQL that was attempted.
+
 ## Notes
 
-- Uses `google-genai` SDK. Models are tried in priority order: `gemini-2.5-flash` → `gemini-2.0-flash` → `gemini-1.5-flash`. If the top model is overloaded (503), the next one is used automatically. Free tier: ~15 requests/min, 1500/day.
+- Uses `google-genai` SDK. Models are tried in priority order with automatic fallback on both `503 UNAVAILABLE` and `429 RESOURCE_EXHAUSTED` errors, so transient overloads and per-minute quota limits do not break a run. Free tier: ~15 requests/min, 1500/day.
 - Schema introspection reads only metadata — no table data is ever fetched during setup.
 - Rows returned by SQL are capped at 20 before being sent to Gemini to keep token usage low.
+- The HTML report is fully self-contained (PNGs embedded as base64) so it can be shared or graded as a single file. The `output/` directory is gitignored.
