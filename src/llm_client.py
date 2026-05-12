@@ -21,7 +21,7 @@ def _get_client(api_key: str) -> genai.Client:
 
 
 def _generate(api_key: str, prompt: str) -> str:
-    """Try each model in priority order, falling back on 503 errors."""
+    """Try each model in priority order, falling back on 503 unavailable or 429 quota errors."""
     client = _get_client(api_key)
     for model in MODELS:
         try:
@@ -32,7 +32,12 @@ def _generate(api_key: str, prompt: str) -> str:
                 print(f"[warn] {model} unavailable, trying next model...")
                 continue
             raise
-    raise RuntimeError("All Gemini models are currently unavailable. Try again later.")
+        except errors.ClientError as e:
+            if "429" in str(e) or "RESOURCE_EXHAUSTED" in str(e):
+                print(f"[warn] {model} quota exhausted, trying next model...")
+                continue
+            raise
+    raise RuntimeError("All Gemini models are currently unavailable or quota-exhausted. Try again later.")
 
 
 def generate_sql(question: str, schema_context: str, api_key: str) -> str:
