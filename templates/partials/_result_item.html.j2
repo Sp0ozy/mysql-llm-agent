@@ -1,4 +1,13 @@
-<div>
+<section class="result">
   <h2>{{ result.title }}</h2>
-  {% if result.error %}<p>Error: {{ result.error }}</p>{% endif %}
-</div>
+  {% if result.error %}
+    <p class="error">Failed: {{ result.error }}</p>
+    {% if result.sql %}
+    <details><summary>Attempted SQL</summary><pre>{{ result.sql }}</pre></details>
+    {% endif %}
+  {% else %}
+    <img src="/charts/{{ run_id }}/{{ item_idx }}.png" alt="{{ result.title }}">
+    <p class="insight">{{ result.insight }}</p>
+    <details><summary>SQL</summary><pre>{{ result.sql }}</pre></details>
+  {% endif %}
+</section>

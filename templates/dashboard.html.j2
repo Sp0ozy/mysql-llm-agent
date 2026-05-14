@@ -1,12 +1,25 @@
-<!DOCTYPE html>
-<html lang="en">
-<head>
-  <meta charset="UTF-8">
-  <title>MySQL LLM Agent</title>
-</head>
-<body>
-  <h1>MySQL LLM Agent</h1>
-  <p><strong>Tables:</strong> {{ tables | join(", ") }}</p>
-  <p><em>Full UI coming in Step 8 (templates).</em></p>
-</body>
-</html>
+{% extends "base.html.j2" %}
+
+{% block content %}
+<h1>MySQL LLM Agent</h1>
+<p class="meta">Tables: {{ tables | join(", ") }}</p>
+
+<section class="card">
+  <h2>Step 1 — Generate plan</h2>
+  <form hx-post="/plan"
+        hx-target="#plan-area"
+        hx-swap="innerHTML"
+        hx-indicator="#plan-loader"
+        style="display:flex; align-items:center; gap:0.75rem; flex-wrap:wrap;">
+    <label>Items:
+      <input type="number" name="n_items" value="5" min="3" max="8">
+    </label>
+    <button class="btn-primary" type="submit">Generate plan</button>
+    <span id="plan-loader" class="htmx-indicator">⏳ Generating plan…</span>
+  </form>
+
+  <div id="plan-area" style="margin-top:1rem;"></div>
+</section>
+
+<div id="run-area"></div>
+{% endblock %}

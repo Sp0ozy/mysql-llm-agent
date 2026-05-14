@@ -19,6 +19,7 @@ async def start_run(request: Request, background_tasks: BackgroundTasks):
         run_id=run_id,
         plan=list(CURRENT_PLAN),
         results=[None] * len(CURRENT_PLAN),
+        status="running",
     )
     RUNS[run_id] = run
 

@@ -1,2 +1,33 @@
-<p>Run <code>{{ run_id }}</code>: <strong>{{ run.status }}</strong>
-  ({{ run.results | selectattr('title', 'defined') | list | length }}/{{ run.plan | length }} items)</p>
+<div id="run-status"
+  {% if run.status == "running" %}
+     hx-get="/run/{{ run_id }}/status"
+     hx-trigger="load, every 5s"
+     hx-target="this"
+     hx-swap="outerHTML"
+  {% endif %}>
+
+  <section class="card">
+    <h2>Step 2 — Results</h2>
+    {% if run.status == "running" %}
+      <p class="status-running">⏳ Running… ({{ run.results | select | list | length }}/{{ run.plan | length }} complete)</p>
+    {% elif run.status == "done" %}
+      <p class="status-done">✓ Report complete — {{ run.plan | length }} item{{ '' if run.plan | length == 1 else 's' }}</p>
+    {% elif run.status == "failed" %}
+      <p class="status-failed">✗ Run failed unexpectedly.</p>
+    {% endif %}
+  </section>
+
+  {% for result in run.results %}
+    {% if result %}
+      {% set item_idx = loop.index0 %}
+      {% include "partials/_result_item.html.j2" %}
+    {% endif %}
+  {% endfor %}
+
+  {% if run.status == "done" %}
+  <form hx-post="/export/{{ run_id }}" hx-swap="none" style="margin-top:0.5rem;">
+    <button class="btn-primary" type="submit">Export static HTML</button>
+  </form>
+  {% endif %}
+
+</div>

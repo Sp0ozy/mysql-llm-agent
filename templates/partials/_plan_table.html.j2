@@ -1,1 +1,31 @@
-<p>{{ plan | length }} plan item(s).</p>
+<table>
+  <thead>
+    <tr>
+      <th style="width:18%">Title</th>
+      <th>Question</th>
+      <th style="width:9%">Viz</th>
+      <th style="width:11%">X label</th>
+      <th style="width:11%">Y label</th>
+      <th style="width:3%"></th>
+    </tr>
+  </thead>
+  <tbody>
+    {% for item in plan %}
+      {% set index = loop.index0 %}
+      {% include "partials/_plan_row.html.j2" %}
+    {% endfor %}
+  </tbody>
+</table>
+
+<div style="display:flex; gap:0.5rem; margin-top:0.75rem; align-items:center;">
+  <button class="btn-secondary"
+          hx-post="/plan/row"
+          hx-target="#plan-area"
+          hx-swap="innerHTML">+ Add row</button>
+  <button class="btn-run"
+          hx-post="/run"
+          hx-target="#run-area"
+          hx-swap="innerHTML"
+          hx-indicator="#run-loader">▶ Run report</button>
+  <span id="run-loader" class="htmx-indicator">⏳ Starting run…</span>
+</div>

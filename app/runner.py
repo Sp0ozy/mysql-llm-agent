@@ -9,7 +9,6 @@ async def run_plan(
     run_id: str, engine, schema: dict, schema_context: str, api_key: str
 ) -> None:
     run = RUNS[run_id]
-    run.status = "running"
     try:
         for i, item in enumerate(run.plan):
             run.cursor = i
