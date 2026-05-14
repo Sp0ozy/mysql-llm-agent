@@ -49,7 +49,7 @@ def validate_and_prepare(sql: str, schema: dict) -> str:
     cte_aliases = {m.group(1).lower() for m in _CTE_RE.finditer(sql)}
 
     # 6. Every FROM/JOIN target must exist in schema or be a CTE alias
-    known = {t.lower() for t in schema.get("tables", {}).keys()}
+    known = {t["name"].lower() for t in schema.get("tables", [])}
     referenced = {
         m.group(1).lower()
         for pattern in (_TABLE_AFTER_FROM, _TABLE_AFTER_JOIN)

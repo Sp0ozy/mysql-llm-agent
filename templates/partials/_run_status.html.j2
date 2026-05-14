@@ -1,0 +1,2 @@
+<p>Run <code>{{ run_id }}</code>: <strong>{{ run.status }}</strong>
+  ({{ run.results | selectattr('title', 'defined') | list | length }}/{{ run.plan | length }} items)</p>
