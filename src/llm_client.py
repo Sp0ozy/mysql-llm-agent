@@ -1,6 +1,6 @@
 import re
 from google import genai
-from google.genai import errors
+from google.genai import errors, types
 
 MODELS = [
     "gemini-3-flash-preview",
@@ -23,12 +23,23 @@ def _get_client(api_key: str) -> genai.Client:
     return _client
 
 
-def _generate(api_key: str, prompt: str) -> str:
+def _generate(
+    api_key: str,
+    prompt: str,
+    response_mime_type: str | None = None,
+    response_schema=None,
+) -> str:
     """Try each model in priority order, falling back on 503 unavailable or 429 quota errors."""
     client = _get_client(api_key)
+    config = None
+    if response_mime_type or response_schema:
+        config = types.GenerateContentConfig(
+            response_mime_type=response_mime_type,
+            response_schema=response_schema,
+        )
     for model in MODELS:
         try:
-            response = client.models.generate_content(model=model, contents=prompt)
+            response = client.models.generate_content(model=model, contents=prompt, config=config)
             return response.text.strip()
         except errors.ServerError as e:
             if "503" in str(e) or "UNAVAILABLE" in str(e):
