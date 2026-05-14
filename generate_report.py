@@ -11,6 +11,7 @@ from src.db_introspect import get_schema
 from src.planner import generate_plan
 from src.processing import process_plan_item
 from src.report import build_html
+from src.visualizer import save_figure
 
 OUTPUT_DIR = Path("output")
 REPORT_PATH = OUTPUT_DIR / "report.html"
@@ -54,8 +55,11 @@ def main() -> None:
         items = []
         for i, item in enumerate(plan):
             print(f"[{i + 1}/{len(plan)}] {item['title']}")
-            out_path = str(OUTPUT_DIR / _safe_filename(item["title"], i + 1))
-            result = process_plan_item(engine, item, i + 1, schema, schema_context, api_key, out_path=out_path)
+            result = process_plan_item(engine, item, i + 1, schema, schema_context, api_key)
+            if "fig" in result:
+                png_path = str(OUTPUT_DIR / _safe_filename(result["title"], i + 1))
+                save_figure(result["fig"], png_path)
+                result["png_path"] = png_path
             items.append(result)
     finally:
         engine.dispose()

@@ -1,7 +1,7 @@
 import pandas as pd
 
 from src.llm_client import generate_insight, generate_sql
-from src.visualizer import render
+from src.visualizer import make_figure
 
 
 def _run_sql_with_retry(engine, question: str, schema_context: str, api_key: str) -> tuple[str, list[dict] | None, str | None]:
@@ -36,11 +36,10 @@ def process_plan_item(
     schema,
     schema_context: str,
     api_key: str,
-    out_path: str | None = None,
 ) -> dict:
     """Run one plan item end-to-end. Returns a result dict.
 
-    Success: {title, sql, rows, png_path, insight}  (png_path is None when out_path is None)
+    Success: {title, sql, rows, fig, insight}
     Failure: {title, sql, error}
     """
     title = item["title"]
@@ -53,18 +52,15 @@ def process_plan_item(
     if not rows:
         return {"title": title, "sql": sql, "error": "Query returned no rows"}
 
-    png_path = None
-    if out_path is not None:
-        try:
-            df = pd.DataFrame(rows)
-            render(df, item["viz_type"], title, item["x_label"], item["y_label"], out_path)
-            png_path = out_path
-        except Exception as e:
-            return {"title": title, "sql": sql, "error": f"Visualization failed: {e}"}
+    try:
+        df = pd.DataFrame(rows)
+        fig = make_figure(df, item["viz_type"], title, item["x_label"], item["y_label"])
+    except Exception as e:
+        return {"title": title, "sql": sql, "error": f"Visualization failed: {e}"}
 
     try:
         insight = generate_insight(question, sql, rows, api_key)
     except Exception as e:
         insight = f"(insight generation failed: {e})"
 
-    return {"title": title, "sql": sql, "rows": rows, "png_path": png_path, "insight": insight}
+    return {"title": title, "sql": sql, "rows": rows, "fig": fig, "insight": insight}

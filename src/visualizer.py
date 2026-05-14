@@ -41,21 +41,18 @@ _DISPATCH = {
 }
 
 
-def render(
+def make_figure(
     df: pd.DataFrame,
     viz_type: str,
     title: str,
     x_label: str,
     y_label: str,
-    out_path: str,
-) -> str:
-    """Render a DataFrame as a chart and save to out_path. Returns the saved path."""
+) -> plt.Figure:
+    """Build and return a matplotlib Figure. No I/O."""
     if viz_type not in _DISPATCH:
         raise ValueError(f"Unsupported viz_type: {viz_type}")
     if df is None or df.empty:
         raise ValueError("Cannot render an empty DataFrame")
-
-    os.makedirs(os.path.dirname(out_path) or ".", exist_ok=True)
 
     fig, ax = plt.subplots(figsize=(8, 5))
     _DISPATCH[viz_type](df, ax)
@@ -66,6 +63,24 @@ def render(
         ax.set_ylabel(y_label)
 
     plt.tight_layout()
+    return fig
+
+
+def save_figure(fig: plt.Figure, out_path: str) -> str:
+    """Save a Figure to disk at 150 DPI, close it, return the path."""
+    os.makedirs(os.path.dirname(out_path) or ".", exist_ok=True)
     fig.savefig(out_path, dpi=150)
     plt.close(fig)
     return out_path
+
+
+def render(
+    df: pd.DataFrame,
+    viz_type: str,
+    title: str,
+    x_label: str,
+    y_label: str,
+    out_path: str,
+) -> str:
+    """Backwards-compat wrapper: make_figure + save_figure."""
+    return save_figure(make_figure(df, viz_type, title, x_label, y_label), out_path)
