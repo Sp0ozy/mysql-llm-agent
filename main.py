@@ -47,7 +47,7 @@ while True:
     if not question:
         continue
 
-    result = answer_question(engine, schema_context, question, api_key)
+    result = answer_question(engine, schema_context, question, api_key, schema=schema)
 
     print(f"\nSQL: {result['sql']}")
     if "error" in result:

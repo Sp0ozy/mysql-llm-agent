@@ -1,21 +1,27 @@
 import pandas as pd
+from sqlalchemy import text
 
 from src.llm_client import generate_insight, generate_sql
+from src.sql_guard import SQLGuardError, validate_and_prepare
 from src.visualizer import make_figure
 
 
-def _run_sql_with_retry(engine, question: str, schema_context: str, api_key: str) -> tuple[str, list[dict] | None, str | None]:
+def _run_sql_with_retry(
+    engine, question: str, schema, schema_context: str, api_key: str
+) -> tuple[str, list[dict] | None, str | None]:
     sql = generate_sql(question, schema_context, api_key)
     try:
+        sql = validate_and_prepare(sql, schema)
         rows = _execute(engine, sql)
         return sql, rows, None
-    except Exception as first_err:
+    except (SQLGuardError, Exception) as first_err:
         retry_question = (
             f"{question}\n\nThe previous SQL failed with error: {first_err}\n"
             "Generate a corrected SQL query that avoids that error."
         )
         try:
             sql_retry = generate_sql(retry_question, schema_context, api_key)
+            sql_retry = validate_and_prepare(sql_retry, schema)
             rows = _execute(engine, sql_retry)
             return sql_retry, rows, None
         except Exception as second_err:
@@ -23,8 +29,8 @@ def _run_sql_with_retry(engine, question: str, schema_context: str, api_key: str
 
 
 def _execute(engine, sql: str) -> list[dict]:
-    from sqlalchemy import text
     with engine.connect() as conn:
+        conn.execute(text("SET SESSION max_execution_time = 30000"))
         result = conn.execute(text(sql))
         return [dict(row._mapping) for row in result]
 
@@ -45,7 +51,7 @@ def process_plan_item(
     title = item["title"]
     question = item["question"]
 
-    sql, rows, sql_err = _run_sql_with_retry(engine, question, schema_context, api_key)
+    sql, rows, sql_err = _run_sql_with_retry(engine, question, schema, schema_context, api_key)
     if sql_err is not None:
         return {"title": title, "sql": sql, "error": f"SQL failed: {sql_err}"}
 
