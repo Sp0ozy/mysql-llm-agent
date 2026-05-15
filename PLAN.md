@@ -1,217 +1,218 @@
-# PLAN.md — Task B: Visualization Agent
+# PLAN.md — Task B: Dockerize the MySQL LLM Agent
 
-## What this adds to the existing project
+> Previous Task B (visualization agent) is complete and shipped. This file now tracks the new Task B: containerizing the existing process with Docker Compose. Visualization-agent plan archived in git history.
 
-The current repo (tagged `pre-task2`) answers a single natural-language question against the DB. Task B requires a multi-step agent that:
+## Context
 
-1. Generates a **plan** of N data visualizations from the schema context
-2. For each plan item: generates SQL → executes → creates a chart → writes an insight
-3. Combines everything into **one self-contained HTML report**
-4. Shared via GitHub with instructor
+The repo currently ships two CLI workflows on `main`:
 
-## New deliverable
+- `main.py` — interactive Q&A loop (Task A, complete, tagged `gemini-qa-v1`)
+- `generate_report.py` — one-shot HTML report (visualization agent, complete)
 
-`python generate_report.py` produces `output/report.html` containing 4–6 visualizations + business insights from the MySQL database.
+Both share `src/` modules, the same Python deps, and the same `.env`-driven config (DB credentials + `GEMINI_API_KEY`). The MySQL database is **remote** (`87.110.123.151`); no local DB is needed in the stack.
+
+This task requires the project to run inside Docker Compose with: a pinned list of components/versions, a single `docker-compose.yaml`, and accessible logs. Plus an optional GitHub-side hook for tests/checks.
+
+**User decisions (confirmed):**
+
+1. **Stack scope** — CLI only. One Python service that can run either script. UI from the `app` branch is deferred.
+2. **Logs** — stdout only; viewed via `docker compose logs -f`. No code changes (existing `print()` calls already write to stdout).
+3. **GitHub CI** — minimal `.github/workflows/ci.yml` that builds the image and runs an import-only smoke test (no DB / no API key required).
+4. **Report output** — bind-mount `./output` to host; user opens `output/report.html` in the host browser.
+
+**Goal**: a grader can `cp .env.example .env`, fill in credentials, and run `docker compose run --rm app python generate_report.py` (or `python main.py` for interactive Q&A) without installing Python or any deps locally.
+
+---
+
+## Components and versions to pin
+
+These go in the deliverable and the Dockerfile / compose file:
+
+| Component | Version | Why pinned |
+| --- | --- | --- |
+| Python base image | `python:3.11-slim` | Project requires 3.11+; slim keeps image small |
+| Docker Compose schema | v2 (no top-level `version:` key) | Compose v2 is current; v1 is EOL |
+| `sqlalchemy` | `>=2.0.0` | per `requirements.txt` |
+| `pymysql` | `>=1.1.0` | per `requirements.txt` |
+| `google-genai` | `>=1.0.0` | per `requirements.txt` |
+| `python-dotenv` | `>=1.0.0` | per `requirements.txt` |
+| `pandas` | `>=2.0.0` | per `requirements.txt` |
+| `matplotlib` | `>=3.8.0` | per `requirements.txt` |
+| `jinja2` | `>=3.1.0` | per `requirements.txt` |
+
+**Gemini model chain** (already in `src/llm_client.py`; documented for the deliverable):
+
+1. `gemini-2.5-flash` (primary)
+2. `gemini-2.0-flash` (fallback on 503 / 429)
+3. `gemini-1.5-flash` (final fallback)
+
+---
 
 ## Files to CREATE
 
 | File | Purpose |
-|---|---|
-| `src/planner.py` | schema_context → JSON plan |
-| `src/visualizer.py` | DataFrame + viz spec → PNG |
-| `src/report.py` | items list → self-contained HTML |
-| `templates/report.html.j2` | Jinja2 template |
-| `generate_report.py` | orchestrator at project root |
-| `output/` | gitignored directory for PNGs + report.html |
+| --- | --- |
+| `Dockerfile` | Build the runtime image |
+| `.dockerignore` | Keep build context small / no secrets |
+| `docker-compose.yaml` | Single `app` service for both CLI scripts |
+| `.github/workflows/ci.yml` | CI: build image + import smoke test |
 
 ## Files to MODIFY
 
 | File | Change |
-|---|---|
-| `src/llm_client.py` | add `generate_plan()` and `generate_insight()` |
-| `requirements.txt` | add `pandas`, `matplotlib`, `jinja2` |
-| `.gitignore` | add `output/` |
-| `README.md` | add usage section for report mode |
+| --- | --- |
+| `README.md` | Append "Run with Docker" section + components/versions table |
 
 ## Files to LEAVE UNTOUCHED
 
-- `src/db_introspect.py`
-- `src/context_builder.py`
-- `src/pipeline.py` (Q&A mode still works)
-- `main.py` (Q&A loop stays)
+- `main.py`, `generate_report.py`, `src/**` — run as-is inside the container
+- `requirements.txt` — already correct; Dockerfile installs from it
+- `.env.example` — already lists exactly the vars the container needs
+- `.gitignore` — already excludes `.env`, `output/`, `__pycache__/`
+
+---
 
 ## Build Order (strict — stop after each step, verify, then continue)
 
-### Step 1 — Dependencies
+### Step 1 — `.dockerignore`
 
-Add to `requirements.txt`:
-```
-pandas>=2.0.0
-matplotlib>=3.8.0
-jinja2>=3.1.0
-```
-Then:
+Exclude from build context so subsequent builds don't ship `venv/` or `.env`:
+`.git`, `venv/`, `__pycache__/`, `*.pyc`, `output/`, `.env`, `.claude/`, `app/`.
+
+**Verify:** file exists with the above entries.
+
+---
+
+### Step 2 — `Dockerfile`
+
+Single-stage, `python:3.11-slim` base.
+
+- `WORKDIR /app`
+- Copy `requirements.txt` first (layer cache) → `pip install --no-cache-dir -r requirements.txt`
+- Copy the rest of the repo
+- `ENV PYTHONUNBUFFERED=1` — critical so `print()` flushes to `docker compose logs` immediately
+- `ENV PYTHONDONTWRITEBYTECODE=1` — no `.pyc` clutter
+- No default `CMD`; the user picks `python main.py` or `python generate_report.py` at runtime
+
+**Verify:**
 ```bash
-pip install -r requirements.txt
-python -c "import pandas, matplotlib, jinja2; print('ok')"
+docker build -t mysql-llm-agent:dev .
+docker run --rm mysql-llm-agent:dev python -c "import src.planner, src.visualizer, src.report; print('ok')"
 ```
-**Stop and verify** the print succeeds before moving on.
 
 ---
 
-### Step 2 — Planner
+### Step 3 — `docker-compose.yaml`
 
-Create `src/planner.py`.
+One service, `app`:
 
-**Function signature:**
-```python
-def generate_plan(schema_context: str, api_key: str, n_items: int = 5) -> list[dict]:
+- `build: .`
+- `image: mysql-llm-agent:latest`
+- `env_file: .env` — loads DB creds + `GEMINI_API_KEY`
+- `volumes:` `./output:/app/output` — report HTML lands on host
+- `stdin_open: true` and `tty: true` — required for the interactive `input()` in `main.py`
+- No `command:` (caller supplies it)
+- No port mapping (CLI only)
+- No restart policy (one-shot runs)
+
+**Verify:**
+```bash
+docker compose config            # parses cleanly
+docker compose build
 ```
-
-**Each plan item structure:**
-```python
-{
-    "title": str,           # e.g. "Revenue by region"
-    "question": str,        # natural-language description fed to SQL generator
-    "viz_type": str,        # one of: "bar", "line", "pie", "scatter", "hist"
-    "x_label": str,
-    "y_label": str
-}
-```
-
-**Prompt requirements:**
-- Ask Gemini to return ONLY a JSON array, no prose, no markdown fences.
-- Constrain `viz_type` to the 5 allowed values.
-- Ask for `n_items` aggregations that a business user would actually want.
-
-**Robustness:**
-- Strip ` ```json ` / ` ``` ` fences defensively (same pattern as `generate_sql`).
-- Parse with `json.loads`. On `JSONDecodeError`, retry ONCE with a reinforcement prompt that includes the broken output. If retry also fails, raise.
-- Validate every item has all 5 keys and `viz_type` is in the allowed set. Drop invalid items.
-
-**Test before moving on:**
-```python
-from src.planner import generate_plan
-plan = generate_plan(schema_context, api_key)
-import json; print(json.dumps(plan, indent=2))
-```
-Eyeball the plan — does it make sense for THIS database?
 
 ---
 
-### Step 3 — Visualizer
+### Step 4 — Smoke test report mode
 
-Create `src/visualizer.py`.
-
-**Function signature:**
-```python
-def render(
-    df: pd.DataFrame,
-    viz_type: str,
-    title: str,
-    x_label: str,
-    y_label: str,
-    out_path: str,
-) -> str:
+```bash
+docker compose run --rm app python generate_report.py
 ```
 
-Returns the saved path.
-
-**Implementation rules:**
-- `import matplotlib; matplotlib.use("Agg")` at top of file (no GUI backend).
-- Dispatch on `viz_type` to 5 small helper functions.
-- Assume first column is x-axis, second column is y-axis (or document the chosen convention).
-- For `pie`: use first column as labels, second as values.
-- For `hist`: use first numeric column.
-- Always: set title, x_label, y_label, `plt.tight_layout()`, save at 150 DPI, `plt.close()`.
-
-**Test before moving on:**
-```python
-import pandas as pd
-from src.visualizer import render
-df = pd.DataFrame({"region": ["A","B","C"], "revenue": [100, 200, 150]})
-render(df, "bar", "Test", "Region", "Revenue", "output/test.png")
-```
-Open the PNG. Does it look right?
+Confirm `output/report.html` appears on the host with charts and insights.
 
 ---
 
-### Step 4 — Insight generator
+### Step 5 — Smoke test Q&A mode
 
-Add to `src/llm_client.py`:
-
-```python
-def generate_insight(question: str, sql: str, results: list[dict], api_key: str) -> str:
+```bash
+docker compose run --rm app python main.py
 ```
 
-**Different from `describe_results`:**
-- `describe_results` = neutral recap of the data
-- `generate_insight` = 1–2 sentence **business takeaway** ("Region A dominates revenue — 40% of total despite only 20% of customers")
-
-**Prompt should explicitly forbid:**
-- Recapping numbers the user can already see
-- Mentioning SQL or the schema
-- Filler phrases like "this shows that…"
-
-Truncate results to 20 rows before sending.
+Type one question, see SQL + answer, type `exit`. Confirms `stdin_open` + `tty` work.
 
 ---
 
-### Step 5 — Report assembler
+### Step 6 — Verify logs
 
-Create `templates/report.html.j2`:
-- Minimal HTML: `<title>`, `<h1>` for report name, then a section per item.
-- Each section: `<h2>{{ title }}</h2>`, `<img src="data:image/png;base64,{{ png_b64 }}">`, `<p>{{ insight }}</p>`, `<details><summary>SQL</summary><pre>{{ sql }}</pre></details>`.
-- Plain inline CSS at the top. No frameworks. Max-width ~900px, sensible padding.
+In one terminal run the report; in another:
+```bash
+docker compose logs -f app
+```
+The `[1/5] …` progress prints should appear in real time. Confirms `PYTHONUNBUFFERED=1`.
 
-Create `src/report.py`:
-```python
-def build_html(items: list[dict], out_path: str) -> None:
+---
+
+### Step 7 — `.github/workflows/ci.yml`
+
+Triggers: `push` to `main`, `pull_request`. Steps:
+
+- `actions/checkout@v4`
+- `docker/setup-buildx-action@v3`
+- `docker build -t mysql-llm-agent:ci .`
+- Smoke check inside the freshly built image:
+  ```sh
+  docker run --rm mysql-llm-agent:ci python -c "import src.db_introspect, src.context_builder, src.llm_client, src.pipeline, src.planner, src.visualizer, src.report; print('imports OK')"
+  ```
+
+Verifies image builds, deps install, modules import cleanly — without DB or `GEMINI_API_KEY`.
+
+**Verify:** push, watch Actions tab go green.
+
+---
+
+### Step 8 — README update
+
+Append a "Run with Docker" section with the three commands a grader needs:
+
+```bash
+cp .env.example .env
+docker compose build
+docker compose run --rm app python generate_report.py   # report mode
+docker compose run --rm app python main.py              # Q&A mode
+docker compose logs -f app                               # logs
 ```
 
-Each item: `{"title", "png_path", "insight", "sql"}` (or `"error"` if step failed).
-- Base64-encode each PNG and pass as `png_b64` so the HTML is self-contained.
-- Render template with Jinja2, write to `out_path`.
+Also include the pinned versions table so the grader can see "required models and versions."
 
 ---
 
-### Step 6 — Orchestrator
+### Step 9 — Commit + tag
 
-Create `generate_report.py` at project root.
-
-**Flow:**
-1. Load `.env`, build engine (same as `main.py`)
-2. `schema = get_schema(engine)` → `context = build_context(schema)`
-3. `plan = generate_plan(context, api_key)`
-4. For each plan item:
-   - `sql = generate_sql(item["question"], context, api_key)`
-   - Try execute → `pd.DataFrame(rows)`. On error: retry SQL generation ONCE, feeding the error back as additional context. If still failing, record error item and continue.
-   - `png_path = visualizer.render(df, ...)`
-   - `insight = generate_insight(item["question"], sql, rows, api_key)`
-   - Append to `items`
-5. `build_html(items, "output/report.html")`
-6. Print absolute path of `report.html`.
-
-**Failure handling:** one bad plan item must NOT crash the whole report. Include failed items with the error message visible in the report.
-
----
-
-### Step 7 — Commit + share
-
-- Update `README.md` with a "Report mode" section.
-- `git add -A && git commit -m "feat: visualization agent for Task B"`
-- Push to GitHub.
-- Submit repo URL to course.
+- `git add -A && git commit -m "feat: dockerize CLI workflows with compose + CI"`
+- Tag (e.g. `task-b-docker`) so the grader can check out the exact state.
+- Push.
 
 ---
 
 ## What NOT to do
 
-- Don't merge planner + visualizer + report into one file. Keep separation.
-- Don't use pandas in `db_introspect.py` or `context_builder.py`. Only in viz pipeline.
-- Don't make the plan interactive (no chained follow-ups). Single-shot plan.
-- Don't add CSS frameworks (Tailwind, Bootstrap). Plain inline CSS only.
-- Don't commit `output/`. Add to `.gitignore`.
-- Don't trust LLM output without validation. Always parse → validate → retry once → fail loudly.
-- Don't bolt new features into existing modules unless listed in "Files to MODIFY". Add new modules instead.
-- Don't break the existing Q&A loop. `main.py` must still work after every step.
+- Don't add a MySQL service to compose — the DB is remote by design.
+- Don't bake `.env` into the image. `env_file:` only.
+- Don't add a default `CMD` that runs one script — leaves the user a choice.
+- Don't add a UI service yet (deferred; lives on the `app` branch).
+- Don't introduce logging libraries or refactor `print()` calls — out of scope, and stdout works.
+- Don't pin to `python:3.11-alpine` — matplotlib wheels are slow on musl; `slim` is the right tradeoff.
+- Don't use the deprecated top-level `version:` key in `docker-compose.yaml`.
+- Don't push large changes in one commit — one commit per step per CLAUDE.md.
+
+---
+
+## Verification (end-to-end)
+
+1. **Clean-room build**: `docker compose build --no-cache` succeeds in <~3 min, image <500 MB.
+2. **Report mode**: `docker compose run --rm app python generate_report.py` exits 0, writes `output/report.html` to host, browser shows charts.
+3. **Q&A mode**: `docker compose run --rm app python main.py` reaches the prompt, answers a question, exits on `exit`.
+4. **Logs**: `docker compose logs app` shows planner + per-item progress lines.
+5. **CI**: `.github/workflows/ci.yml` goes green on push.
+6. **No regressions**: `python main.py` and `python generate_report.py` still work outside Docker.
