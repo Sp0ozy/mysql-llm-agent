@@ -1,0 +1,26 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  build-and-smoke:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: docker/setup-buildx-action@v3
+
+      - name: Build image
+        run: docker build -t mysql-llm-agent:ci .
+
+      - name: Smoke test — all modules import cleanly
+        run: |
+          docker run --rm mysql-llm-agent:ci python -c "
+          import src.db_introspect, src.context_builder, src.llm_client, \
+                 src.pipeline, src.planner, src.visualizer, src.report
+          print('imports OK')
+          "
