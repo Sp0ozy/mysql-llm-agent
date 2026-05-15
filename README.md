@@ -72,6 +72,47 @@ Generates a self-contained HTML report with 4–6 visualizations and business in
 
 Output is written to `output/report.html`. One failed item never crashes the whole report — failures appear inline with the SQL that was attempted.
 
+## Run with Docker
+
+No local Python installation required. Docker and Docker Compose must be installed.
+
+```bash
+cp .env.example .env        # fill in DB credentials and GEMINI_API_KEY
+docker compose build
+
+# report mode — writes output/report.html, open it in your browser
+docker compose run --rm app python generate_report.py
+
+# Q&A mode — interactive prompt
+docker compose run --rm app python main.py
+
+# view logs from the last run (before --rm removes the container)
+docker logs <container-name>   # name printed by docker compose run
+```
+
+### Components and versions
+
+| Component | Version |
+| --- | --- |
+| Python base image | `python:3.11-slim` |
+| `sqlalchemy` | `>=2.0.0` |
+| `pymysql` | `>=1.1.0` |
+| `google-genai` | `>=1.0.0` |
+| `python-dotenv` | `>=1.0.0` |
+| `pandas` | `>=2.0.0` |
+| `matplotlib` | `>=3.8.0` |
+| `jinja2` | `>=3.1.0` |
+
+### Gemini model chain
+
+Models are tried in order; the next is used on `503 UNAVAILABLE` or `429 RESOURCE_EXHAUSTED`:
+
+1. `gemini-2.5-flash`
+2. `gemini-2.0-flash`
+3. `gemini-1.5-flash`
+
+---
+
 ## Notes
 
 - Uses `google-genai` SDK. Models are tried in priority order with automatic fallback on both `503 UNAVAILABLE` and `429 RESOURCE_EXHAUSTED` errors, so transient overloads and per-minute quota limits do not break a run. Free tier: ~15 requests/min, 1500/day.
