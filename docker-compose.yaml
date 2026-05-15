@@ -1,0 +1,9 @@
+services:
+  app:
+    build: .
+    image: mysql-llm-agent:latest
+    env_file: .env
+    volumes:
+      - ./output:/app/output  # report.html lands on host after generate_report.py
+    stdin_open: true  # keep stdin open for main.py's input() loop
+    tty: true         # allocate a TTY so the prompt renders correctly
